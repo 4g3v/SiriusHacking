@@ -146,6 +146,17 @@ if not skipFirstStage:
                         decompressedData.extend(compressedData[1:2] * (repeat + 1))
                         compressedData = compressedData[2:]
             elif COMPRESSION_METHOD == CompressionMethod.DELTA_ROW:
+                seed = bytearray()
+                seed.extend(seed_row)
+
+                seedLen = len(seed)
+                seedOffset = 0
+
+                if plane and seedLen < RASTER_WIDTH:
+                    count = (RASTER_WIDTH - seedLen)
+                    print(f"Zero filling {count} seed bytes")
+                    seed.extend(count * b"\x00")
+
                 while True:
                     if len(compressedData) == 0:
                         break
@@ -163,11 +174,15 @@ if not skipFirstStage:
 
                     # print(f"command: {hex(command)}")
                     # print(f"bytesToReplace: {bytesToReplace}")
-                    # print(f"offset: {offset}")
+                    # print(f"deltaOffset: {deltaOffset}")
                     # hexdump(deltaBytes)
-                    decompressedData.extend(deltaOffset * b"\x00" + deltaBytes)
+
+                    for i in range(bytesToReplace):
+                        seed[seedOffset+deltaOffset+i] = deltaBytes[i]
+                    seedOffset += bytesToReplace + deltaOffset
 
                     compressedData = compressedData[1 + bytesToReplace:]
+                decompressedData.extend(seed)
             else:
                 print(f"Unimplemented compression: {COMPRESSION_METHOD}")
                 exit(-1)
@@ -181,6 +196,8 @@ if not skipFirstStage:
 
             offset += compDataOffset + compSize
             firstStageBuffer.extend(decompressedData)
+
+            seed_row = decompressedData
             continue
         else:
             print("Unhandled command!")
