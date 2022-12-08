@@ -198,6 +198,7 @@ def struct_read(name, address):
 
 def task_help():
     print("task parse - Parses the threads of all tasks in memory")
+    print("task list - Lists parsed tasks")
     print("task save [fileName] - Saves the parsed threads to a file")
     print("task load [fileName] - Loads the parsed threads from a file")
     print("task dump [taskName] - Dumps all fields of the specified task")
@@ -211,21 +212,27 @@ def task_command(args):
         task_help()
         return
 
-    if len(args) == 1 and args[0] == "parse":
-        tasks = {}
-        print("Reading sm_ModuleTaskThreads...")
+    if len(args) == 1:
+        if args[0] == "parse":
+            tasks = {}
+            print("Reading sm_ModuleTaskThreads...")
 
-        taskThreadList = struct.unpack(">" + ("I" * 256), mem_read(sm_ModuleTaskThreads, 0x400))
-        for thread in taskThreadList:
-            if thread == 0:
-                continue
+            taskThreadList = struct.unpack(">" + ("I" * 256), mem_read(sm_ModuleTaskThreads, 0x400))
+            for thread in taskThreadList:
+                if thread == 0:
+                    continue
 
-            namePtr = struct.unpack(">I", mem_read(thread + 0x34, 4))[0]
-            taskName = mem_read_string(namePtr)
+                namePtr = struct.unpack(">I", mem_read(thread + 0x34, 4))[0]
+                taskName = mem_read_string(namePtr)
 
-            tasks[taskName] = thread
-            print(f"Found {taskName} at {hex(thread)}")
-        print("Finished parsing tasks!")
+                tasks[taskName] = thread
+                print(f"Found {taskName} at {hex(thread)}")
+            print("Finished parsing tasks!")
+        elif args[0] == "list":
+            for taskName in tasks:
+                print(f"{taskName} at {hex(tasks[taskName])}")
+        else:
+            task_help()
     elif len(args) >= 2:
         if args[0] == "save":
             with open(args[1], "w") as f:
