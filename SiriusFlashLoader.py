@@ -8,7 +8,7 @@ import ida_entry
 import ida_name
 import ida_loader
 
-SHOW_ZERO_LENGTH_ENTRIES = False
+SHOW_ZERO_LENGTH_ENTRIES = True
 
 FLASH_MAGIC = 0xBAD2BFED
 APPHDR_MAGIC = 0x3CA55A3C
@@ -173,6 +173,7 @@ def load_file(li, neflags, format):
     segments = []
     segmentsByStart = {}
     segmentListFileOffset = toFileOffset(appHeader.segmentListPtr)
+    print(f"segmentListFileOffset: 0x{hex(segmentListFileOffset)}")
     li.seek(segmentListFileOffset, idaapi.SEEK_SET)
     while True:
         segment = Segment(li.read(6 * 4))
