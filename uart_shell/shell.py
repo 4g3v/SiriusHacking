@@ -1,3 +1,4 @@
+import importlib
 import inspect
 import struct
 import pkgutil
@@ -15,12 +16,13 @@ tasks = {}
 structs = {}
 
 
-def getClassByName(s):
-    return inspect.getmembers(inspect.getmembers(__import__(s))[0][1], inspect.isclass)[0][1]
+def getClassFromModule(m):
+    return inspect.getmembers(mod, inspect.isclass)[0][1]
 
 
-for _, name, _ in pkgutil.iter_modules(['structures']):
-    structs[name] = getClassByName(f"structures.{name}")
+for _, name, _ in pkgutil.iter_modules(["structures"]):
+    mod = importlib.import_module("structures." + name)
+    structs[name] = getClassFromModule(mod)
 
 
 def runShellCommand(s):
@@ -283,6 +285,8 @@ def task_command(args):
 
 def struct_help():
     print("struct dump [structName] [address] - Reads a struct at the specified address and dumps its fields")
+    print(
+        "struct stackdump [structName] [taskName] [offset] - Reads a struct from the stack of the specified task and dumps its fields")
     print("struct list - Lists all available structs")
 
 
@@ -301,6 +305,28 @@ def struct_command(args):
 
             print(f"Reading {structName} at {hex(structAddress)}")
             struct_ = struct_read(structName, structAddress)
+            struct_.dump()
+        elif len(args) == 4 and args[0] == "stackdump":
+            structName = args[1]
+            taskName = args[2]
+            offset = int(args[3], 16)
+
+            if taskName not in tasks:
+                print(f"{taskName} does not exist or the tasks haven't been parsed!")
+                return
+            if structName not in structs:
+                print(f"{structName} doesn't exist!")
+                return
+
+            threadPtr = tasks[taskName]
+            print(f"Reading thread at {hex(threadPtr)}...")
+
+            thread = struct_read("TX_THREAD", threadPtr)
+            taskName = mem_read_string(thread.name)
+
+            start = (thread.stack_start + thread.stack_size) - offset
+            print(f"Reading {structName} from the stack of {taskName} at {hex(start)}")
+            struct_ = struct_read(structName, start)
             struct_.dump()
         else:
             struct_help()
