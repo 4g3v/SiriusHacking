@@ -278,6 +278,7 @@ commands = {
 print_help()
 while True:
     inp = input()
+    print()
     if inp.startswith("!"):
         if inp.startswith("!!"):
             if inp.startswith("!!!"):
