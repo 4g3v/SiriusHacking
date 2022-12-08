@@ -1,9 +1,9 @@
 import struct
 
-SIZE = 0xD8
-
 
 class TX_THREAD:
+    SIZE = 0xD8
+
     def __init__(self, data):
         self.id, self.run_count, self.stack_ptr, self.stack_start, self.stack_end, self.stack_size, self.time_slice, \
             self.new_time_slice, self.ready_next, self.ready_previous, self.field_28, self.field_2C, self.field_30, \
@@ -17,7 +17,7 @@ class TX_THREAD:
             self.owned_mutex_count, self.owned_mutex_list, self.entry_exit_notify \
             = struct.unpack(">" + ("I" * int(len(data) / 4)), data)
 
-    def dumpFields(self):
+    def dump(self):
         print(f"id: {hex(self.id)}")
         print(f"run_count: {hex(self.run_count)}")
         print(f"stack_ptr: {hex(self.stack_ptr)}")

@@ -1,6 +1,6 @@
+import inspect
 import struct
-from structures import TX_THREAD
-
+import pkgutil
 import serial
 from hexdump import hexdump
 
@@ -12,6 +12,15 @@ sm_ModuleTaskThreads = 0xC3E17120
 
 ser = serial.Serial(PORT, 115200)
 tasks = {}
+structs = {}
+
+
+def getClassByName(s):
+    return inspect.getmembers(inspect.getmembers(__import__(s))[0][1], inspect.isclass)[0][1]
+
+
+for _, name, _ in pkgutil.iter_modules(['structures']):
+    structs[name] = getClassByName(f"structures.{name}")
 
 
 def runShellCommand(s):
@@ -181,6 +190,12 @@ def mem_command(args):
         mem_help()
 
 
+def struct_read(name, address):
+    structType = structs[name]
+    structData = mem_read(address, structType.SIZE)
+    return structType(structData)
+
+
 def task_help():
     print("task parse - Parses the threads of all tasks in memory")
     print("task save [fileName] - Saves the parsed threads to a file")
@@ -236,12 +251,13 @@ def task_command(args):
 
         threadPtr = tasks[taskName]
         print(f"Reading thread at {hex(threadPtr)}...")
-        thread = TX_THREAD.TX_THREAD(mem_read(threadPtr, TX_THREAD.SIZE))
+
+        thread = struct_read("TX_THREAD", threadPtr)
         taskName = mem_read_string(thread.name)
 
         if args[0] == "dump":
             print(f"Dumping fields of {taskName}:")
-            thread.dumpFields()
+            thread.dump()
         elif args[0] == "stackdump":
             if len(args) == 3:
                 size = int(args[2], 16)
@@ -258,6 +274,37 @@ def task_command(args):
         task_help()
 
 
+def struct_help():
+    print("struct dump [structName] [address] - Reads a struct at the specified address and dumps its fields")
+    print("struct list - Lists all available structs")
+
+
+def struct_command(args):
+    if len(args) == 0:
+        struct_help()
+        return
+
+    if len(args) > 1:
+        if len(args) == 3 and args[0] == "dump":
+            structName = args[1]
+            structAddress = int(args[2], 16)
+            if structName not in structs:
+                print(f"{structName} doesn't exist!")
+                return
+
+            print(f"Reading {structName} at {hex(structAddress)}")
+            struct_ = struct_read(structName, structAddress)
+            struct_.dump()
+        else:
+            struct_help()
+    elif args[0] == "list":
+        print("Available structs:")
+        for structName in structs:
+            print(f"{structName} ({hex(structs[structName].SIZE)} bytes)")
+    else:
+        struct_help()
+
+
 def print_help():
     print("Available commands:")
     print("! [s] - Run shell command")
@@ -267,13 +314,15 @@ def print_help():
     nand_help()
     mem_help()
     task_help()
+    struct_help()
 
 
 commands = {
     "udw": udw_command,
     "nand": nand_command,
     "mem": mem_command,
-    "task": task_command
+    "task": task_command,
+    "struct": struct_command
 }
 print_help()
 while True:
