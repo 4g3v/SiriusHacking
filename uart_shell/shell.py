@@ -338,6 +338,24 @@ def struct_command(args):
         struct_help()
 
 
+def eval_help():
+    print("eval [expression] - Evaluates the expression")
+
+
+def eval_command(args):
+    if len(args) == 0:
+        eval_help()
+        return
+
+    try:
+        expression = " ".join(args)
+        print(f"Evaluating {expression}")
+        res = eval(expression)
+        print(f"Result: {res}")
+    except Exception as exc:
+        print(f"Exception: {exc}")
+
+
 def print_help():
     print("Available commands:")
     print("! [s] - Run shell command")
@@ -348,6 +366,7 @@ def print_help():
     mem_help()
     task_help()
     struct_help()
+    eval_help()
 
 
 commands = {
@@ -355,7 +374,8 @@ commands = {
     "nand": nand_command,
     "mem": mem_command,
     "task": task_command,
-    "struct": struct_command
+    "struct": struct_command,
+    "eval": eval_command
 }
 print_help()
 while True:
