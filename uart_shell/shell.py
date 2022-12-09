@@ -139,6 +139,9 @@ def mem_help():
     print("mem r [address] [size] - Hexdumps memory, size has to be >= 4")
     print("mem rb [address] - Reads a single byte")
     print("mem rs [address] - Reads a string")
+    print("mem w [filePath] [address] - Writes a file to the specified address, file size has to be a multiple of 4")
+    print("mem wd [address] [dword] - Writes a dword to the specified address")
+    print("mem wb [address] [byte] - Writes a byte to the specified address")
 
 
 def mem_read_dword(addr):
@@ -174,14 +177,56 @@ def mem_read(addr, size):
     return data
 
 
+def mem_write_dword(addr, dword):
+    runUnderware(f"photo_hw.write {hex(addr)} 4 {hex(dword)}")
+
+
+def mem_write_byte(addr, byte):
+    runUnderware(f"photo_hw.write {hex(addr)} 1 {hex(byte)}")
+
+
+def mem_write(addr, data):
+    offset = 0
+    while True:
+        if offset == len(data):
+            break
+        dword = struct.unpack(">I", data[offset:offset+4])[0]
+        mem_write_dword(addr+offset, dword)
+        offset += 4
+
+
 def mem_command(args):
     if len(args) == 0:
         mem_help()
         return
 
     if len(args) > 1:
-        if args[0] == "r" and len(args) == 3:
-            hexdump(mem_read(int(args[1], 16), int(args[2], 16)))
+        if len(args) == 3:
+            if args[0] == "r":
+                hexdump(mem_read(int(args[1], 16), int(args[2], 16)))
+            elif args[0] == "w":
+                filePath = args[1]
+                addr = int(args[2], 16)
+
+                with open(filePath, "rb") as f:
+                    fileData = f.read()
+
+                mem_write(addr, fileData)
+                print(f"Wrote {filePath} ({len(fileData)} bytes) to {hex(addr)}")
+            elif args[0] == "wd":
+                addr = int(args[1], 16)
+                dword = int(args[2], 16)
+                mem_write_dword(addr, dword)
+
+                print(f"Wrote {hex(dword)} to {hex(addr)}")
+            elif args[0] == "wb":
+                addr = int(args[1], 16)
+                dword = int(args[2], 16)
+                mem_write_byte(addr, dword)
+
+                print(f"Wrote {hex(dword)} to {hex(addr)}")
+            else:
+                mem_help()
         elif args[0] == "rb" and len(args) == 2:
             hexdump(mem_read_byte(int(args[1], 16)))
         elif args[0] == "rs" and len(args) == 2:
