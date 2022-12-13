@@ -1,0 +1,23 @@
+include("lib/Macros")
+
+set_mem_offset(0xc4ec7fc4)
+
+NOP_LR()
+SET_SP(loop)
+
+put_label("loop")
+add_word(0xDEADBEEF)
+add_word(0xDEADBEEF)
+add_word(0xDEADBEEF)
+
+pop(r0=HelloWorld)
+add_word(BOOT_console_put_string)
+
+SET_SP(loop)
+
+add_word(0xFFFFFFFF)
+
+
+put_label("HelloWorld")
+add_ascii("Hello world from rop lmao\n")
+align(4)

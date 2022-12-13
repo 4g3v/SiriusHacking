@@ -1,0 +1,45 @@
+include("lib/Macros")
+
+set_mem_offset(0xc4ec7fc4)
+
+PutString(crlf)
+
+PutString(disable)
+DisableCachesAndMPU()
+
+PutString(textCopy)
+memcpy({TEXT_ADDRESS}, {SCRATCH_TEXT_ADDRESS}, {TEXT_SIZE})
+
+PutString(enable)
+EnableMPUAndCaches()
+
+PutString(dataCopy)
+memcpy({DATA_ADDRESS}, {SCRATCH_DATA_ADDRESS}, {DATA_SIZE})
+
+PutString(jump)
+malloc({STACK_SIZE})
+add_word({TEXT_ADDRESS})
+
+put_label("disable")
+add_ascii("[CodeRun] Disabling MPU and cache...\r\n\x00")
+align(4)
+
+put_label("enable")
+add_ascii("[CodeRun] Enabling MPU and cache...\r\n\x00")
+align(4)
+
+put_label("textCopy")
+add_ascii("[CodeRun] Copying text and rodata from scratch...\r\n\x00")
+align(4)
+
+put_label("dataCopy")
+add_ascii("[CodeRun] Copying data from scratch...\r\n\x00")
+align(4)
+
+put_label("jump")
+add_ascii("[CodeRun] Allocating stack memory and jumping to code...\r\n\x00")
+align(4)
+
+put_label("crlf")
+add_ascii("\r\n\x00")
+align(4)

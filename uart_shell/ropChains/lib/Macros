@@ -1,0 +1,126 @@
+include("Constants")
+
+@macro
+def NOP():
+    add_word(ROP_POP_PC)
+
+@macro
+def NOP_LR():
+    add_word(ROP_POP_R4_R5_LR_BX_LR)
+    add_word(0xDEADC0DE)
+    add_word(0xDEADC0DE)
+    NOP()
+
+@macro
+def GetSystemControlRegister():
+    add_word(ROP_GetSystemControlRegister)
+    NOP()
+
+@macro
+def Cleanup():
+    pop(r0=0)
+    SET_SP(0xc4eca118+0x24)
+
+@macro
+def DisableCachesAndMPU():
+    NOP_LR()
+    add_word(ROP_DisableCachesAndMPU)
+    NOP()
+
+@macro
+def memset(s, c, n):
+    NOP_LR()
+    pop(r0=s, r1=c, r2=n)
+    add_word(ROP_memset)
+    NOP()
+
+@macro
+def memcpy(dest, src, n):
+    NOP_LR()
+    pop(r0=dest, r1=src, r2=n)
+    add_word(ROP_memcpy)
+    NOP()
+
+@macro
+def malloc(size):
+    NOP_LR()
+    pop(r0=size)
+    add_word(ROP_malloc_memset_ED)
+    NOP()
+
+@macro
+def EnableMPUAndCaches():
+    NOP_LR()
+    add_word(ROP_EnableMPUAndCaches)
+    NOP()
+
+@macro
+def PutStringR0():
+    NOP_LR()
+    add_word(ROP_BOOT_console_put_string)
+
+@macro
+def PutInt():
+    NOP_LR()
+    add_word(ROP_BOOT_console_put_int_hex)
+
+@macro
+def PutString(label):
+    pop(r0=label)
+    PutStringR0()
+
+@macro
+def SET_SP(sp):
+    pop(r4=sp)
+    add_word(ROP_MOV_SP_R4_POP_R4_R5_R6_PC)
+
+@pop_macro
+def POP_R4(r4):
+    add_word(ROP_POP_R4_PC)
+    add_word(r4)
+    NOP()
+
+@pop_macro
+def POP_R0_R1_R2_R3_R4_R5_R7(r0, r1, r2, r3, r4, r5, r7):
+    add_word(ROP_POP_R0_R1_R2_R3_R4_R5_R7_PC)
+    add_word(r0)
+    add_word(r1)
+    add_word(r2)
+    add_word(r3)
+    add_word(r4)
+    add_word(r5)
+    add_word(r7)
+    NOP()
+
+#@macro
+#def POP_R0PC(r0):
+#    put_label("Label")
+#    add_word(ROP_POP_R0PC)
+#    add_word(Label)
+#    POP_POP(r0)
+#
+#@macro
+#def POP_POP(r7):
+#    add_word(1)
+#
+#@pop_macro
+#def TEST1(r0):
+#    add_word(0x10101010)
+#    add_word(r0)
+#
+#@pop_macro
+#@macro
+#def TEST2(r0):
+#    put_label("TEST")
+#    add_word(TEST)
+#    add_word(1)
+#
+#@pop_macro
+#def TEST3(r0, r4):
+#    add_word(r0)
+#    add_word(1)
+#
+#@pop_macro
+#def TEST(r7):
+#    add_word(0x20202020)
+#    add_word(r7)

