@@ -21,11 +21,11 @@ sm_ModuleTaskThreads = 0xC3E17120
 ROP_PATH = "ropChains"
 CODE_PATH = "code"
 CODE_BUILD_PATH = "code_build"
-SCRATCH_SIZE = 1024 * 10
-DATA_SIZE = 1024 * 4
-STACK_SIZE = 1024 * 4
+SCRATCH_SIZE = 1024 * 14
+DATA_SIZE = 1024 * 2
+STACK_SIZE = 1024 * 8
 LINK_TEXT_ADDRESS = 0x409A1330
-LINK_TEXT_SIZE = 0x400
+LINK_TEXT_SIZE = 0x3000
 
 ser = serial.Serial(PORT, 115200)
 tasks = {}
@@ -155,6 +155,7 @@ def nand_command(args):
 
 def mem_help():
     print("mem r [address] [size] - Hexdumps memory, size has to be >= 4")
+    print("mem d [address] [size] [filePath] - Dumps memory into a file, size has to be >= 4")
     print("mem rb [address] - Reads a single byte")
     print("mem rs [address] - Reads a string")
     print("mem w [filePath] [address] - Writes a file to the specified address, file size has to be a multiple of 4")
@@ -191,6 +192,21 @@ def mem_read(addr, size):
     size = int(size / 4)
     for i in range(size):
         data.extend(mem_read_dword(addr + (i * 4)))
+
+    return data
+
+
+def mem_dump(addr, size, filePath):
+    data = bytearray()
+
+    print(f"Dumping {size} bytes from {hex(addr)} to {filePath}")
+    size = int(size / 4)
+    f = open(filePath, "wb")
+    for i in range(size):
+        f.write(mem_read_dword(addr + (i * 4)))
+        f.flush()
+    f.close()
+    print("Finished!")
 
     return data
 
@@ -249,6 +265,8 @@ def mem_command(args):
             hexdump(mem_read_byte(int(args[1], 16)))
         elif args[0] == "rs" and len(args) == 2:
             print(mem_read_string(int(args[1], 16)))
+        elif args[0] == "d" and len(args) == 4:
+            mem_dump(int(args[1], 16), int(args[2], 16), args[3])
         else:
             mem_help()
     else:
@@ -635,7 +653,10 @@ def code_command(args):
             f.writelines(link)
 
         print("Building...")
-        print(subprocess.check_output(["bash", "-c", "make"], cwd=codeBuildPath).decode("utf-8"))
+        try:
+            print(subprocess.check_output(["bash", "-c", "make"], cwd=codeBuildPath).decode("utf-8"))
+        except Exception as e:
+            print(f"Error while building: {e}")
 
         textPath = os.path.join(codeBuildPath, f"build/{name}_text_rodata.bin")
         dataPath = os.path.join(codeBuildPath, f"build/{name}_data.bin")
