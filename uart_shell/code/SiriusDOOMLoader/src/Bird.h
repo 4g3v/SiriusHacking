@@ -1,0 +1,7 @@
+#define BIRD_TIME (void*)0x3C000414
+#define BIRD_UART_BASE ((unsigned short*)0x3C02EC00)
+
+#define LED_WIFI 0x00000003
+#define LED_HOME 0x00000002
+#define LED_HELP 0x00000001
+#define LED_BACK 0x00000000
