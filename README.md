@@ -1,10 +1,13 @@
 # About
 A collection of scripts intended to aid in reverse engineering of `HP OfficeJet` printers, possibly other models too.
+The scripts have only been tested on `Python 3.9.9`.
 
 # `unpack-ful.py`
 Note: Requires [hexdump](https://pypi.org/project/hexdump/) python module
 
 Script that unpacks/extracts `.ful` firmware updates, ideally giving you a flash image + `bootloader.srec` to analyze.
+
+Usage: `python unpack-ful.py [pathToFul]`
 
 # `SiriusFlashLoader.py`
 Note: Requires [lzss](https://pypi.org/project/lzss/) python module
